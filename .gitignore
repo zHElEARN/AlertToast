@@ -6,3 +6,4 @@ xcuserdata/
 *.png
 *.gif
 /Assets
+.swiftpm
