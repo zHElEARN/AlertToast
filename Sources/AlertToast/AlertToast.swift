@@ -12,6 +12,46 @@ import SwiftUI
 import Combine
 
 @available(iOS 14, macOS 11, *)
+public class HUDCoordinator: ObservableObject {
+    public static let shared = HUDCoordinator()
+
+    @Published var activeHUDs: [UUID] = []
+
+    var hudHeights: [UUID: CGFloat] = [:]
+
+    public var spacing: CGFloat = 0
+
+    func register(id: UUID) {
+        if !activeHUDs.contains(id) {
+            activeHUDs.append(id)
+        }
+    }
+
+    func updateHeight(id: UUID, height: CGFloat) {
+        if hudHeights[id] != height {
+            hudHeights[id] = height
+            objectWillChange.send()
+        }
+    }
+
+    func remove(id: UUID) {
+        activeHUDs.removeAll { $0 == id }
+        hudHeights.removeValue(forKey: id)
+    }
+
+    func calculateOffset(for id: UUID) -> CGFloat {
+        guard let index = activeHUDs.firstIndex(of: id) else { return .zero }
+        var totalOffset: CGFloat = 0
+        for i in 0..<index {
+            let previousID = activeHUDs[i]
+            let height = hudHeights[previousID] ?? 0
+            totalOffset += (height + spacing)
+        }
+        return totalOffset
+    }
+}
+
+@available(iOS 14, macOS 11, *)
 fileprivate struct AnimatedCheckmark: View {
     
     ///Checkmark color
@@ -432,6 +472,9 @@ public struct AlertToastModifier: ViewModifier{
     
     @State private var hostRect: CGRect = .zero
     @State private var alertRect: CGRect = .zero
+
+    @State private var toastID = UUID()
+    @ObservedObject private var coordinator = HUDCoordinator.shared
     
     private var screen: CGRect {
 #if os(iOS)
@@ -477,6 +520,7 @@ public struct AlertToastModifier: ViewModifier{
                                 DispatchQueue.main.async {
                                     
                                     self.alertRect = rect
+                                    coordinator.updateHeight(id: toastID, height: rect.height)
                                 }
                             }
                             return AnyView(EmptyView())
@@ -549,7 +593,8 @@ public struct AlertToastModifier: ViewModifier{
                     }
                         .overlay(ZStack{
                             main()
-                                .offset(y: offsetY)
+                                .offset(y: offsetY + coordinator.calculateOffset(for: toastID))
+                                .animation(.spring(), value: coordinator.activeHUDs)
                         }
                                     .frame(maxWidth: screen.width, maxHeight: screen.height)
                                     .offset(y: offset)
@@ -557,7 +602,10 @@ public struct AlertToastModifier: ViewModifier{
                 )
                 .valueChanged(value: isPresenting, onChange: { (presented) in
                     if presented{
+                        coordinator.register(id: toastID)
                         onAppearAction()
+                    } else {
+                        coordinator.remove(id: toastID)
                     }
                 })
         case .alert:
